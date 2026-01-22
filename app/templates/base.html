@@ -7,26 +7,55 @@
     <link rel="stylesheet" href="/static/styles.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script>
-        function copyTrackingUrl(campaignId) {
+        function copyTrackingUrl(campaignId, event) {
             const input = document.getElementById('tracking-url-' + campaignId);
-            const button = event.currentTarget;
+            const button = event ? event.currentTarget : event.target || window.event.srcElement;
             
             input.select();
             input.setSelectionRange(0, 99999);
             
-            navigator.clipboard.writeText(input.value).then(() => {
-                const originalText = button.innerHTML;
-                button.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/></svg>';
+            const originalText = button.innerHTML;
+            const successIcon = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/></svg>';
+            
+            function showSuccess() {
+                button.innerHTML = successIcon;
                 button.classList.add('copied');
                 
                 setTimeout(() => {
                     button.innerHTML = originalText;
                     button.classList.remove('copied');
                 }, 2000);
-            }).catch(err => {
-                console.error('Ошибка копирования:', err);
-                alert('Не удалось скопировать ссылку');
-            });
+            }
+            
+            // Пробуем современный API (работает только на HTTPS или localhost)
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(input.value).then(() => {
+                    showSuccess();
+                }).catch(err => {
+                    // Fallback на старый метод
+                    fallbackCopy();
+                });
+            } else {
+                // Используем старый метод (работает везде)
+                fallbackCopy();
+            }
+            
+            function fallbackCopy() {
+                try {
+                    const successful = document.execCommand('copy');
+                    if (successful) {
+                        showSuccess();
+                    } else {
+                        throw new Error('execCommand failed');
+                    }
+                } catch (err) {
+                    console.error('Ошибка копирования:', err);
+                    // Показываем текст для ручного копирования
+                    input.focus();
+                    input.select();
+                    alert('Автокопирование не поддерживается. Текст выделен - скопируйте вручную (Ctrl+C или Cmd+C)');
+                }
+            }
         }
     </script>
 </head>
