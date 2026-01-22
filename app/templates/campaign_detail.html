@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}{{ campaign.name }} - Tracker{% endblock %}
+
+{% block header_actions %}
+<a href="/" class="btn btn-secondary">← Назад</a>
+{% endblock %}
+
+{% block content %}
+<div class="campaign-header">
+    <h2 class="campaign-title">{{ campaign.name }}</h2>
+    <div class="campaign-url">Offer: {{ campaign.offer_url }}</div>
+    <div class="campaign-id">
+        Campaign ID: {{ campaign.id }}
+        <button class="btn" onclick="navigator.clipboard.writeText('{{ campaign.id }}')">Копировать</button>
+    </div>
+</div>
+
+<div hx-get="/campaign/{{ campaign.id }}/stats" hx-trigger="every 10s" hx-swap="innerHTML">
+    {% include "partials/campaign_stats.html" %}
+</div>
+
+<div class="card">
+    <h3 class="section-title">Путешествие пользователей</h3>
+    
+    <div class="filters">
+        <div class="filter-group">
+            <label for="domain-filter">Фильтр по домену</label>
+            <select id="domain-filter" 
+                    name="domain"
+                    hx-get="/campaign/{{ campaign.id }}/users" 
+                    hx-target="#user-journeys-container"
+                    hx-include="[name='email_search']">
+                <option value="">Все домены</option>
+                {% for stat in domain_stats %}
+                <option value="{{ stat.domain }}">{{ stat.domain }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="filter-group">
+            <label for="email-search">Поиск по email</label>
+            <input type="search" 
+                   id="email-search" 
+                   name="email_search" 
+                   placeholder="Введите email..."
+                   hx-get="/campaign/{{ campaign.id }}/users" 
+                   hx-trigger="keyup changed delay:500ms"
+                   hx-target="#user-journeys-container"
+                   hx-include="[name='domain']">
+        </div>
+    </div>
+    
+    <div id="user-journeys-container">
+        {% include "partials/user_journeys.html" %}
+    </div>
+</div>
+{% endblock %}

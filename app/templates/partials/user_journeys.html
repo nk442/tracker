@@ -1,0 +1,42 @@
+<table>
+    <thead>
+        <tr>
+            <th>Email</th>
+            <th>Домен</th>
+            <th>Email клик</th>
+            <th>Landing клик</th>
+            <th>Конверсия</th>
+        </tr>
+    </thead>
+    <tbody id="user-journeys-tbody">
+        {% for journey in user_journeys %}
+        <tr>
+            <td>{{ journey.email }}</td>
+            <td>{{ journey.domain }}</td>
+            <td>{% if journey.has_email_click %}<span class="check-mark">✓</span>{% else %}<span class="cross-mark">✗</span>{% endif %}</td>
+            <td>{% if journey.has_landing_click %}<span class="check-mark">✓</span>{% else %}<span class="cross-mark">✗</span>{% endif %}</td>
+            <td>{% if journey.has_conversion %}<span class="check-mark">✓</span>{% else %}<span class="cross-mark">✗</span>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="5" style="text-align: center; color: #95a5a6;">
+                Нет данных
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="load-more">
+    Показано {{ user_journeys|length }} из {{ total_users }} пользователей
+    
+    {% set current_offset = offset|default(0) %}
+    {% if user_journeys|length > 0 and current_offset + 50 < total_users %}
+    <button class="btn" 
+            hx-get="/campaign/{{ campaign_id }}/users?offset={{ current_offset + 50 }}{% if domain %}&domain={{ domain }}{% endif %}{% if email_search %}&email_search={{ email_search }}{% endif %}"
+            hx-target="#user-journeys-tbody"
+            hx-swap="beforeend">
+        Загрузить еще
+    </button>
+    {% endif %}
+</div>

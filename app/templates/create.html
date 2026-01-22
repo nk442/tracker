@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Создать кампанию{% endblock %}
+
+{% block content %}
+<a href="/" class="back-link">← Назад</a>
+
+<div class="card">
+    <h2 class="section-title">Создать новую кампанию</h2>
+    
+    <form hx-post="/campaigns" hx-swap="none">
+        <div class="form-group">
+            <label for="name">Название кампании</label>
+            <input type="text" id="name" name="name" placeholder="Dog Food US, Wellgreen" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="offer_url">Offer URL</label>
+            <input type="url" id="offer_url" name="offer_url" placeholder="https://wellgreen.com/dog-food-offer?aff=123" required>
+        </div>
+        
+        <button type="submit" class="btn">Создать кампанию</button>
+    </form>
+</div>
+{% endblock %}

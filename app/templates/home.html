@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}Tracker - Главная{% endblock %}
+
+{% block header_actions %}
+<a href="/create" class="btn">+ Новая кампания</a>
+{% endblock %}
+
+{% block content %}
+<h2 class="section-title">Ваши кампании</h2>
+
+<div hx-get="/campaigns-table" hx-trigger="every 30s" hx-swap="innerHTML">
+    {% include "partials/campaigns_table.html" %}
+</div>
+{% endblock %}

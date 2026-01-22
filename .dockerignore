@@ -1,0 +1,17 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.env
+.git/
+.gitignore
+*.md
+spec.md
+.cursor/
+example_event_sender.py
+docker-compose.yml
+Dockerfile
+.dockerignore

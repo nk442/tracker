@@ -1,0 +1,49 @@
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Название</th>
+            <th>Клики</th>
+            <th>Конверсии</th>
+            <th>Создана</th>
+            <th>Ссылка трекинга</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for campaign in campaigns %}
+        <tr>
+            <td><a href="/campaign/{{ campaign.id }}">{{ campaign.id }}</a></td>
+            <td><a href="/campaign/{{ campaign.id }}">{{ campaign.name }}</a></td>
+            <td>{{ campaign.clicks }}</td>
+            <td>{{ campaign.conversions }}</td>
+            <td>{{ campaign.created_at.strftime('%d %b %Y') }}</td>
+            <td>
+                <div class="tracking-url-container">
+                    <input 
+                        type="text" 
+                        class="tracking-url-input" 
+                        readonly 
+                        value="{{ base_url }}/api/event?cid={{ campaign.id }}&event={event}&email={email}&domain={domain}"
+                        id="tracking-url-{{ campaign.id }}"
+                    >
+                    <button 
+                        class="copy-btn" 
+                        onclick="copyTrackingUrl({{ campaign.id }})"
+                        title="Копировать ссылку"
+                    >
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H6zM2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1h1v1a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1v1H2z"/>
+                        </svg>
+                    </button>
+                </div>
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="6" style="text-align: center; color: #95a5a6;">
+                Нет кампаний. <a href="/create">Создайте первую кампанию</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>

@@ -1,0 +1,57 @@
+<h3 class="section-title">
+    Общая статистика 
+    <span class="auto-update">(обновляется автоматически)</span>
+</h3>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Email клики</div>
+        <div class="stat-value">{{ overall_stats.email_clicks }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Landing клики</div>
+        <div class="stat-value">{{ overall_stats.landing_clicks }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Конверсии</div>
+        <div class="stat-value">{{ overall_stats.conversions }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Конверсия (%)</div>
+        <div class="stat-value">{{ "%.1f"|format(overall_stats.conversion_rate) }}%</div>
+    </div>
+</div>
+
+<h3 class="section-title">
+    Статистика по доменам 
+    <span class="auto-update">(обновляется автоматически)</span>
+</h3>
+
+<table>
+    <thead>
+        <tr>
+            <th>Домен</th>
+            <th>Email клики</th>
+            <th>Landing клики</th>
+            <th>Конверсии</th>
+            <th>Конверсия (%)</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for stat in domain_stats %}
+        <tr>
+            <td>{{ stat.domain }}</td>
+            <td>{{ stat.email_clicks }}</td>
+            <td>{{ stat.landing_clicks }}</td>
+            <td>{{ stat.conversions }}</td>
+            <td>{{ "%.1f"|format(stat.conversion_rate) }}%</td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="5" style="text-align: center; color: #95a5a6;">
+                Нет данных
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
