@@ -1,0 +1,588 @@
+{% extends "base.html" %}
+
+{% block title %}API Документация - Tracker{% endblock %}
+
+{% block header_actions %}
+<a href="/" class="btn btn-secondary">← Назад</a>
+{% endblock %}
+
+{% block content %}
+<div class="api-docs">
+    <h1 class="section-title">API Документация</h1>
+    
+    <div class="intro-section">
+        <p>Полная документация по использованию API для интеграции с системой трекинга кликов.</p>
+        <p><strong>Базовый URL:</strong> <code>{{ base_url }}</code></p>
+    </div>
+
+    <!-- Endpoint 1: Track Event -->
+    <section class="api-endpoint">
+        <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <h2>/api/event</h2>
+        </div>
+        
+        <p class="endpoint-description">
+            Принимает события от внешних сайтов. Используется для отслеживания кликов по email, 
+            переходам на лендинг, конверсий и отписок. Все дополнительные параметры сохраняются в JSONB поле.
+        </p>
+
+        <h3>Параметры запроса (Query Parameters)</h3>
+        <table class="params-table">
+            <thead>
+                <tr>
+                    <th>Параметр</th>
+                    <th>Тип</th>
+                    <th>Обязательный</th>
+                    <th>Описание</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>cid</code></td>
+                    <td>integer</td>
+                    <td>✅ Да</td>
+                    <td>ID кампании (можно найти на странице кампании)</td>
+                </tr>
+                <tr>
+                    <td><code>event</code></td>
+                    <td>string</td>
+                    <td>✅ Да</td>
+                    <td>Тип события. Допустимые значения:
+                        <ul>
+                            <li><code>email_click</code> - клик по ссылке в email</li>
+                            <li><code>landing_click</code> - клик на лендинге</li>
+                            <li><code>conversion</code> - конверсия (покупка, регистрация и т.д.)</li>
+                            <li><code>unsubscribe</code> - отписка от рассылки</li>
+                        </ul>
+                    </td>
+                </tr>
+                <tr>
+                    <td><code>email</code></td>
+                    <td>string</td>
+                    <td>✅ Да</td>
+                    <td>Email адрес пользователя</td>
+                </tr>
+                <tr>
+                    <td><code>domain</code></td>
+                    <td>string</td>
+                    <td>✅ Да</td>
+                    <td>Домен отправителя (например: example1.com)</td>
+                </tr>
+                <tr>
+                    <td><code>*</code></td>
+                    <td>any</td>
+                    <td>❌ Нет</td>
+                    <td>Любые дополнительные параметры будут сохранены в extra_params (JSONB)</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Пример запроса</h3>
+        <div class="code-block">
+            <div class="code-header">
+                <span>cURL</span>
+                <button class="copy-btn" onclick="copyCode(this)">Копировать</button>
+            </div>
+            <pre><code>curl -X GET "{{ base_url }}/api/event?cid=1&event=email_click&email=user@example.com&domain=example1.com&source=newsletter&campaign_name=summer2024"</code></pre>
+        </div>
+
+        <div class="code-block">
+            <div class="code-header">
+                <span>JavaScript (fetch)</span>
+                <button class="copy-btn" onclick="copyCode(this)">Копировать</button>
+            </div>
+            <pre><code>fetch('{{ base_url }}/api/event?cid=1&event=email_click&email=user@example.com&domain=example1.com&source=newsletter')
+  .then(response => response.json())
+  .then(data => console.log(data));</code></pre>
+        </div>
+
+        <div class="code-block">
+            <div class="code-header">
+                <span>Python (requests)</span>
+                <button class="copy-btn" onclick="copyCode(this)">Копировать</button>
+            </div>
+            <pre><code>import requests
+
+response = requests.get('{{ base_url }}/api/event', params={
+    'cid': 1,
+    'event': 'email_click',
+    'email': 'user@example.com',
+    'domain': 'example1.com',
+    'source': 'newsletter',
+    'campaign_name': 'summer2024'
+})
+print(response.json())</code></pre>
+        </div>
+
+        <h3>Успешный ответ</h3>
+        <div class="code-block">
+            <div class="code-header">
+                <span>JSON</span>
+                <button class="copy-btn" onclick="copyCode(this)">Копировать</button>
+            </div>
+            <pre><code>{
+  "status": "ok",
+  "event_id": 12345
+}</code></pre>
+        </div>
+
+        <h3>Ошибки</h3>
+        <table class="errors-table">
+            <thead>
+                <tr>
+                    <th>Код</th>
+                    <th>Описание</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>400</code></td>
+                    <td>Неверный тип события. Должен быть один из: email_click, landing_click, conversion, unsubscribe</td>
+                </tr>
+                <tr>
+                    <td><code>404</code></td>
+                    <td>Кампания с указанным ID не найдена</td>
+                </tr>
+                <tr>
+                    <td><code>422</code></td>
+                    <td>Ошибка валидации параметров (отсутствуют обязательные параметры)</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Примечания</h3>
+        <ul class="notes-list">
+            <li>IP адрес и User-Agent автоматически извлекаются из заголовков запроса</li>
+            <li>Все дополнительные параметры сохраняются в поле <code>extra_params</code> (JSONB)</li>
+            <li>Временная метка события устанавливается автоматически</li>
+        </ul>
+    </section>
+
+    <!-- Endpoint 2: Update Domain Emails Sent -->
+    <section class="api-endpoint">
+        <div class="endpoint-header">
+            <span class="method put">PUT</span>
+            <h2>/api/campaign/{campaign_id}/domain/{domain}/emails-sent</h2>
+        </div>
+        
+        <p class="endpoint-description">
+            Обновляет количество отправленных писем для домена в конкретной кампании. 
+            Если записи не существует, создается новая. Используется для ручного указания 
+            количества отправленных писем, которое отображается в статистике по доменам.
+        </p>
+
+        <h3>Параметры пути (Path Parameters)</h3>
+        <table class="params-table">
+            <thead>
+                <tr>
+                    <th>Параметр</th>
+                    <th>Тип</th>
+                    <th>Описание</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>campaign_id</code></td>
+                    <td>integer</td>
+                    <td>ID кампании</td>
+                </tr>
+                <tr>
+                    <td><code>domain</code></td>
+                    <td>string</td>
+                    <td>Домен отправителя (например: example1.com)</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Тело запроса (Request Body)</h3>
+        <table class="params-table">
+            <thead>
+                <tr>
+                    <th>Поле</th>
+                    <th>Тип</th>
+                    <th>Обязательный</th>
+                    <th>Описание</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>emails_sent</code></td>
+                    <td>integer</td>
+                    <td>✅ Да</td>
+                    <td>Количество отправленных писем с домена (должно быть >= 0)</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Пример запроса</h3>
+        <div class="code-block">
+            <div class="code-header">
+                <span>cURL</span>
+                <button class="copy-btn" onclick="copyCode(this)">Копировать</button>
+            </div>
+            <pre><code>curl -X PUT "{{ base_url }}/api/campaign/1/domain/example1.com/emails-sent" \
+  -H "Content-Type: application/json" \
+  -d '{"emails_sent": 1000}'</code></pre>
+        </div>
+
+        <div class="code-block">
+            <div class="code-header">
+                <span>JavaScript (fetch)</span>
+                <button class="copy-btn" onclick="copyCode(this)">Копировать</button>
+            </div>
+            <pre><code>fetch('{{ base_url }}/api/campaign/1/domain/example1.com/emails-sent', {
+  method: 'PUT',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    emails_sent: 1000
+  })
+})
+  .then(response => response.json())
+  .then(data => console.log(data));</code></pre>
+        </div>
+
+        <div class="code-block">
+            <div class="code-header">
+                <span>Python (requests)</span>
+                <button class="copy-btn" onclick="copyCode(this)">Копировать</button>
+            </div>
+            <pre><code>import requests
+
+response = requests.put(
+    '{{ base_url }}/api/campaign/1/domain/example1.com/emails-sent',
+    json={'emails_sent': 1000}
+)
+print(response.json())</code></pre>
+        </div>
+
+        <h3>Успешный ответ</h3>
+        <div class="code-block">
+            <div class="code-header">
+                <span>JSON</span>
+                <button class="copy-btn" onclick="copyCode(this)">Копировать</button>
+            </div>
+            <pre><code>{
+  "status": "ok",
+  "campaign_id": 1,
+  "domain": "example1.com",
+  "emails_sent": 1000
+}</code></pre>
+        </div>
+
+        <h3>Ошибки</h3>
+        <table class="errors-table">
+            <thead>
+                <tr>
+                    <th>Код</th>
+                    <th>Описание</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>404</code></td>
+                    <td>Кампания с указанным ID не найдена</td>
+                </tr>
+                <tr>
+                    <td><code>422</code></td>
+                    <td>Ошибка валидации (например, emails_sent < 0 или отсутствует поле)</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Примечания</h3>
+        <ul class="notes-list">
+            <li>Если запись для домена и кампании уже существует, она будет обновлена</li>
+            <li>Если записи нет, она будет создана автоматически</li>
+            <li>Значение <code>updated_at</code> обновляется автоматически при изменении</li>
+            <li>Это значение отображается в колонке "Отправлено писем" в статистике по доменам</li>
+        </ul>
+    </section>
+
+    <!-- Workflow Section -->
+    <section class="workflow-section">
+        <h2>Типичный workflow использования API</h2>
+        <ol class="workflow-list">
+            <li>
+                <strong>Создайте кампанию</strong> через веб-интерфейс и получите <code>campaign_id</code>
+            </li>
+            <li>
+                <strong>Укажите количество отправленных писем</strong> для каждого домена через 
+                <code>PUT /api/campaign/{campaign_id}/domain/{domain}/emails-sent</code>
+            </li>
+            <li>
+                <strong>Вставьте трекинг-код</strong> в ваши email письма и на лендинг страницы:
+                <div class="code-block">
+                    <div class="code-header">
+                        <span>HTML (Email)</span>
+                        <button class="copy-btn" onclick="copyCode(this)">Копировать</button>
+                    </div>
+                    <pre><code>&lt;a href="https://your-domain.com/landing?{{ base_url }}/api/event?cid=1&event=email_click&email={{ email }}&domain=example1.com"&gt;
+    Перейти на сайт
+&lt;/a&gt;</code></pre>
+                </div>
+                <div class="code-block">
+                    <div class="code-header">
+                        <span>JavaScript (Landing Page)</span>
+                        <button class="copy-btn" onclick="copyCode(this)">Копировать</button>
+                    </div>
+                    <pre><code>// При загрузке страницы
+fetch('{{ base_url }}/api/event?cid=1&event=landing_click&email=' + 
+      encodeURIComponent(getEmailFromUrl()) + '&domain=example1.com');
+
+// При конверсии (например, при нажатии на кнопку покупки)
+fetch('{{ base_url }}/api/event?cid=1&event=conversion&email=' + 
+      encodeURIComponent(getEmailFromUrl()) + '&domain=example1.com');</code></pre>
+                </div>
+            </li>
+            <li>
+                <strong>Просматривайте статистику</strong> в веб-интерфейсе на странице кампании
+            </li>
+        </ol>
+    </section>
+</div>
+
+<style>
+.api-docs {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+.intro-section {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 40px;
+}
+
+.intro-section p {
+    margin: 10px 0;
+}
+
+.intro-section code {
+    background: #e9ecef;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.api-endpoint {
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 30px;
+    margin-bottom: 40px;
+}
+
+.endpoint-header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.method {
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-weight: bold;
+    font-size: 12px;
+    text-transform: uppercase;
+    color: white;
+}
+
+.method.get {
+    background: #28a745;
+}
+
+.method.put {
+    background: #ffc107;
+    color: #000;
+}
+
+.endpoint-header h2 {
+    margin: 0;
+    font-size: 24px;
+    color: #212529;
+}
+
+.endpoint-description {
+    color: #6c757d;
+    margin-bottom: 25px;
+    line-height: 1.6;
+}
+
+.api-endpoint h3 {
+    margin-top: 30px;
+    margin-bottom: 15px;
+    color: #212529;
+    font-size: 18px;
+}
+
+.params-table, .errors-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+}
+
+.params-table th, .errors-table th {
+    background: #f8f9fa;
+    padding: 12px;
+    text-align: left;
+    border: 1px solid #dee2e6;
+    font-weight: 600;
+}
+
+.params-table td, .errors-table td {
+    padding: 12px;
+    border: 1px solid #dee2e6;
+    vertical-align: top;
+}
+
+.params-table code, .errors-table code {
+    background: #e9ecef;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.params-table ul {
+    margin: 5px 0;
+    padding-left: 20px;
+}
+
+.code-block {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+
+.code-header {
+    background: #e9ecef;
+    padding: 10px 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.code-header span {
+    font-weight: 600;
+    color: #495057;
+    font-size: 13px;
+}
+
+.copy-btn {
+    background: #007bff;
+    color: white;
+    border: none;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.2s;
+}
+
+.copy-btn:hover {
+    background: #0056b3;
+}
+
+.code-block pre {
+    margin: 0;
+    padding: 15px;
+    overflow-x: auto;
+}
+
+.code-block code {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #212529;
+}
+
+.notes-list {
+    background: #fff3cd;
+    border-left: 4px solid #ffc107;
+    padding: 15px 20px;
+    margin: 20px 0;
+    list-style-position: inside;
+}
+
+.notes-list li {
+    margin: 8px 0;
+    line-height: 1.6;
+}
+
+.workflow-section {
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 30px;
+    margin-top: 40px;
+}
+
+.workflow-section h2 {
+    margin-top: 0;
+    margin-bottom: 25px;
+    color: #212529;
+}
+
+.workflow-list {
+    list-style: decimal;
+    padding-left: 25px;
+}
+
+.workflow-list li {
+    margin: 20px 0;
+    line-height: 1.8;
+}
+
+.workflow-list strong {
+    color: #007bff;
+}
+</style>
+
+<script>
+function copyCode(button) {
+    const codeBlock = button.closest('.code-block');
+    const code = codeBlock.querySelector('code').textContent;
+    
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(code).then(() => {
+            const originalText = button.textContent;
+            button.textContent = 'Скопировано!';
+            button.style.background = '#28a745';
+            setTimeout(() => {
+                button.textContent = originalText;
+                button.style.background = '#007bff';
+            }, 2000);
+        });
+    } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = code;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            document.execCommand('copy');
+            const originalText = button.textContent;
+            button.textContent = 'Скопировано!';
+            button.style.background = '#28a745';
+            setTimeout(() => {
+                button.textContent = originalText;
+                button.style.background = '#007bff';
+            }, 2000);
+        } catch (err) {
+            alert('Ошибка копирования. Скопируйте вручную.');
+        }
+        document.body.removeChild(textarea);
+    }
+}
+</script>
+{% endblock %}

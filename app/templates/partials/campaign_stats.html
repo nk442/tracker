@@ -35,6 +35,7 @@
     <thead>
         <tr>
             <th>Домен</th>
+            <th>Отправлено писем</th>
             <th>Email клики</th>
             <th>Landing клики</th>
             <th>Конверсии</th>
@@ -46,6 +47,7 @@
         {% for stat in domain_stats %}
         <tr>
             <td>{{ stat.domain }}</td>
+            <td>{{ stat.emails_sent }}</td>
             <td>{{ stat.email_clicks }}</td>
             <td>{{ stat.landing_clicks }}</td>
             <td>{{ stat.conversions }}</td>
@@ -54,7 +56,7 @@
         </tr>
         {% else %}
         <tr>
-            <td colspan="6" style="text-align: center; color: #95a5a6;">
+            <td colspan="7" style="text-align: center; color: #95a5a6;">
                 Нет данных
             </td>
         </tr>

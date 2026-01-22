@@ -220,3 +220,5 @@ sudo docker builder prune -a -f
 sudo docker images
 sudo docker rmi postgres:15-alpine
 
+sudo docker-compose exec app python add_test_data.py
+

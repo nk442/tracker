@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request
-from app.models.schemas import EventResponse
+from app.models.schemas import EventResponse, DomainEmailsSentUpdate
 from app.database import db
 import json
 
@@ -69,3 +69,63 @@ async def track_event(
     )
     
     return EventResponse(status="ok", event_id=result["id"])
+
+
+@router.put("/campaign/{campaign_id}/domain/{domain}/emails-sent")
+async def update_domain_emails_sent(
+    campaign_id: int,
+    domain: str,
+    data: DomainEmailsSentUpdate
+):
+    """
+    Обновляет количество отправленных писем для домена в кампании.
+    Если записи не существует, создает новую.
+    """
+    
+    # Проверяем существование кампании
+    campaign = await db.fetch_one(
+        "SELECT id FROM campaigns WHERE id = $1",
+        campaign_id
+    )
+    
+    if not campaign:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Campaign with id {campaign_id} not found"
+        )
+    
+    # Проверяем, существует ли запись для этого домена и кампании
+    existing = await db.fetch_one(
+        """
+        SELECT id FROM campaign_domain_emails 
+        WHERE campaign_id = $1 AND domain = $2
+        """,
+        campaign_id,
+        domain
+    )
+    
+    if existing:
+        # Обновляем существующую запись
+        await db.execute(
+            """
+            UPDATE campaign_domain_emails 
+            SET emails_sent = $1, updated_at = NOW()
+            WHERE campaign_id = $2 AND domain = $3
+            """,
+            data.emails_sent,
+            campaign_id,
+            domain
+        )
+    else:
+        # Создаем новую запись
+        await db.execute(
+            """
+            INSERT INTO campaign_domain_emails (campaign_id, domain, emails_sent)
+            VALUES ($1, $2, $3)
+            """,
+            campaign_id,
+            domain,
+            data.emails_sent
+        )
+    
+    return {"status": "ok", "campaign_id": campaign_id, "domain": domain, "emails_sent": data.emails_sent}

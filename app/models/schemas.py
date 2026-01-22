@@ -51,6 +51,7 @@ class DomainStats(BaseModel):
     landing_clicks: int
     conversions: int
     conversion_rate: float
+    emails_sent: int = 0
 
 
 class UserJourney(BaseModel):
@@ -59,3 +60,7 @@ class UserJourney(BaseModel):
     has_email_click: bool
     has_landing_click: bool
     has_conversion: bool
+
+
+class DomainEmailsSentUpdate(BaseModel):
+    emails_sent: int = Field(..., ge=0, description="Количество отправленных писем с домена")

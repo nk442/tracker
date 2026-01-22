@@ -62,8 +62,11 @@
 <body>
     <header>
         <div class="header-content">
-            <h1>TRACKER</h1>
-            {% block header_actions %}{% endblock %}
+            <h1><a href="/" style="text-decoration: none; color: inherit;">TRACKER</a></h1>
+            <nav style="display: flex; gap: 10px; align-items: center;">
+                <a href="/api-docs" style="color: #95a5a6; text-decoration: none; font-size: 14px;">API</a>
+                {% block header_actions %}{% endblock %}
+            </nav>
         </div>
     </header>
     

@@ -171,17 +171,23 @@ async def campaign_detail(request: Request, campaign_id: int):
         conversion_rate = (conversions / email_clicks * 100) if email_clicks > 0 else 0
         
         logger.debug("Fetching domain stats")
-        # Статистика по доменам
+        # Статистика по доменам - объединяем данные из events и campaign_domain_emails
         domain_stats_rows = await db.fetch_all("""
             SELECT 
-                domain,
-                COUNT(CASE WHEN event_type = 'email_click' THEN 1 END) as email_clicks,
-                COUNT(CASE WHEN event_type = 'landing_click' THEN 1 END) as landing_clicks,
-                COUNT(CASE WHEN event_type = 'conversion' THEN 1 END) as conversions,
-                COUNT(CASE WHEN event_type = 'unsubscribe' THEN 1 END) as unsubscribes
-            FROM events
-            WHERE campaign_id = $1
-            GROUP BY domain
+                all_domains.domain,
+                COUNT(CASE WHEN e.event_type = 'email_click' THEN 1 END) as email_clicks,
+                COUNT(CASE WHEN e.event_type = 'landing_click' THEN 1 END) as landing_clicks,
+                COUNT(CASE WHEN e.event_type = 'conversion' THEN 1 END) as conversions,
+                COUNT(CASE WHEN e.event_type = 'unsubscribe' THEN 1 END) as unsubscribes,
+                COALESCE(MAX(cde.emails_sent), 0) as emails_sent
+            FROM (
+                SELECT DISTINCT domain FROM events WHERE campaign_id = $1
+                UNION
+                SELECT DISTINCT domain FROM campaign_domain_emails WHERE campaign_id = $1
+            ) all_domains
+            LEFT JOIN events e ON all_domains.domain = e.domain AND e.campaign_id = $1
+            LEFT JOIN campaign_domain_emails cde ON all_domains.domain = cde.domain AND cde.campaign_id = $1
+            GROUP BY all_domains.domain
             ORDER BY email_clicks DESC
         """, campaign_id)
         
@@ -199,6 +205,7 @@ async def campaign_detail(request: Request, campaign_id: int):
                     "landing_clicks": stat["landing_clicks"] or 0,
                     "conversions": convs,
                     "unsubscribes": stat["unsubscribes"] or 0,
+                    "emails_sent": stat["emails_sent"] or 0,
                     "conversion_rate": (convs / e_clicks * 100) if e_clicks > 0 else 0
                 })
             except Exception as e:
@@ -313,17 +320,23 @@ async def campaign_stats(request: Request, campaign_id: int):
         conversions = overall_stats["conversions"]
         conversion_rate = (conversions / email_clicks * 100) if email_clicks > 0 else 0
         
-        # Статистика по доменам
+        # Статистика по доменам - объединяем данные из events и campaign_domain_emails
         domain_stats = await db.fetch_all("""
             SELECT 
-                domain,
-                COUNT(CASE WHEN event_type = 'email_click' THEN 1 END) as email_clicks,
-                COUNT(CASE WHEN event_type = 'landing_click' THEN 1 END) as landing_clicks,
-                COUNT(CASE WHEN event_type = 'conversion' THEN 1 END) as conversions,
-                COUNT(CASE WHEN event_type = 'unsubscribe' THEN 1 END) as unsubscribes
-            FROM events
-            WHERE campaign_id = $1
-            GROUP BY domain
+                all_domains.domain,
+                COUNT(CASE WHEN e.event_type = 'email_click' THEN 1 END) as email_clicks,
+                COUNT(CASE WHEN e.event_type = 'landing_click' THEN 1 END) as landing_clicks,
+                COUNT(CASE WHEN e.event_type = 'conversion' THEN 1 END) as conversions,
+                COUNT(CASE WHEN e.event_type = 'unsubscribe' THEN 1 END) as unsubscribes,
+                COALESCE(MAX(cde.emails_sent), 0) as emails_sent
+            FROM (
+                SELECT DISTINCT domain FROM events WHERE campaign_id = $1
+                UNION
+                SELECT DISTINCT domain FROM campaign_domain_emails WHERE campaign_id = $1
+            ) all_domains
+            LEFT JOIN events e ON all_domains.domain = e.domain AND e.campaign_id = $1
+            LEFT JOIN campaign_domain_emails cde ON all_domains.domain = cde.domain AND cde.campaign_id = $1
+            GROUP BY all_domains.domain
             ORDER BY email_clicks DESC
         """, campaign_id)
         
@@ -341,6 +354,7 @@ async def campaign_stats(request: Request, campaign_id: int):
                     "landing_clicks": stat["landing_clicks"] or 0,
                     "conversions": convs,
                     "unsubscribes": stat["unsubscribes"] or 0,
+                    "emails_sent": stat["emails_sent"] or 0,
                     "conversion_rate": (convs / e_clicks * 100) if e_clicks > 0 else 0
                 })
             except Exception as e:
@@ -671,3 +685,17 @@ async def update_campaign_offer(
         )
     
     return RedirectResponse(url=f"/campaign/{campaign_id}", status_code=303)
+
+
+# ==================== API ДОКУМЕНТАЦИЯ ====================
+
+@router.get("/api-docs", response_class=HTMLResponse)
+async def api_docs(request: Request):
+    """Страница с полной документацией API"""
+    return templates.TemplateResponse(
+        "api_docs.html",
+        {
+            "request": request,
+            "base_url": settings.base_url
+        }
+    )
