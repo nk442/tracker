@@ -33,10 +33,18 @@ psql -d tracker_db -f init.sql
 5. Создайте файл `.env` и настройте подключение к БД:
 ```bash
 # Создайте файл .env со следующим содержимым:
+# База данных
+POSTGRES_DB=tracker_db
+POSTGRES_USER=tracker_user
+POSTGRES_PASSWORD=your_password
+
+# Приложение
 DATABASE_URL=postgresql://tracker_user:your_password@localhost:5432/tracker_db
 DEBUG=True
 BASE_URL=http://localhost:8000
 ```
+
+**Важно:** Замените `your_password` на пароль, который вы использовали при создании пользователя PostgreSQL.
 
 6. Запустите сервер:
 ```bash

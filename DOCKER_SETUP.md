@@ -18,7 +18,25 @@ docker-compose --version
 cd /home/nk4/Desktop/cursor/tracker
 ```
 
-### 2. Запустите контейнеры
+### 2. Создайте файл `.env`
+
+Создайте файл `.env` в корне проекта со следующим содержимым:
+
+```env
+# База данных
+POSTGRES_DB=tracker_db
+POSTGRES_USER=tracker_user
+POSTGRES_PASSWORD=your_secure_password
+
+# Приложение
+DATABASE_URL=postgresql://tracker_user:your_secure_password@db:5432/tracker_db
+DEBUG=True
+BASE_URL=http://localhost:8000
+```
+
+**Важно:** Замените `your_secure_password` на свой пароль для базы данных.
+
+### 3. Запустите контейнеры
 ```bash
 docker-compose up -d
 ```
@@ -29,7 +47,7 @@ docker-compose up -d
 - Создаст и запустит контейнеры
 - Автоматически инициализирует базу данных
 
-### 3. Проверьте статус
+### 4. Проверьте статус
 ```bash
 docker-compose ps
 ```
@@ -38,7 +56,7 @@ docker-compose ps
 - `tracker-db-1` (PostgreSQL)
 - `tracker-app-1` (FastAPI приложение)
 
-### 4. Откройте в браузере
+### 5. Откройте в браузере
 **http://localhost:8000**
 
 ## Полезные команды
@@ -113,9 +131,9 @@ docker-compose exec db psql -U tracker_user -d tracker_db
 ### Через внешний клиент
 - **Host:** localhost
 - **Port:** 5432
-- **Database:** tracker_db
-- **User:** tracker_user
-- **Password:** tracker_password
+- **Database:** tracker_db (или значение из `POSTGRES_DB` в `.env`)
+- **User:** tracker_user (или значение из `POSTGRES_USER` в `.env`)
+- **Password:** пароль из `POSTGRES_PASSWORD` в `.env`
 
 ## Отладка
 

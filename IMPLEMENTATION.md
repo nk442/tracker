@@ -138,7 +138,14 @@ createdb tracker_db
 psql -d tracker_db -f init.sql
 
 # 3. Настройка .env
-echo "DATABASE_URL=postgresql://postgres:password@localhost:5432/tracker_db" > .env
+cat > .env << EOF
+POSTGRES_DB=tracker_db
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=password
+DATABASE_URL=postgresql://postgres:password@localhost:5432/tracker_db
+DEBUG=True
+BASE_URL=http://localhost:8000
+EOF
 
 # 4. Запуск
 uvicorn app.main:app --reload
