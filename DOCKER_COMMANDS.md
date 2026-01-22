@@ -206,3 +206,17 @@ sudo docker system prune -f
 
 # 5. (Опционально) Очистить всё, включая кэш сборки
 sudo docker builder prune -a -f
+
+
+
+
+
+
+1. sudo docker-compose down -v
+1. sudo docker-compose down
+2. sudo docker rmi tracker-app tracker_app
+3. sudo docker-compose up -d --build
+
+sudo docker images
+sudo docker rmi postgres:15-alpine
+

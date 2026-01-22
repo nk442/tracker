@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Создать оффер{% endblock %}
+
+{% block content %}
+<a href="/offers" class="back-link">← Назад к офферам</a>
+
+<div class="card">
+    <h2 class="section-title">Создать новый оффер</h2>
+    
+    <form hx-post="/offers" hx-swap="none">
+        <div class="form-group">
+            <label for="name">Название оффера</label>
+            <input type="text" id="name" name="name" placeholder="Dog Food US, Wellgreen" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="url">Offer URL</label>
+            <input type="url" id="url" name="url" placeholder="https://wellgreen.com/dog-food-offer?aff=123" required>
+        </div>
+        
+        <button type="submit" class="btn">Создать оффер</button>
+    </form>
+</div>
+{% endblock %}

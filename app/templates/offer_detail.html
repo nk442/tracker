@@ -1,9 +1,30 @@
-<h3 class="section-title">
-    Общая статистика 
-    <span class="auto-update">(обновляется автоматически)</span>
-</h3>
+{% extends "base.html" %}
+
+{% block title %}{{ offer.name }} - Tracker{% endblock %}
+
+{% block header_actions %}
+<a href="/offers" class="btn btn-secondary">← К офферам</a>
+<a href="/offer/{{ offer.id }}/edit" class="btn">Редактировать</a>
+{% endblock %}
+
+{% block content %}
+<div class="campaign-header">
+    <h2 class="campaign-title">{{ offer.name }}</h2>
+    <div class="campaign-url">
+        <a href="{{ offer.url }}" target="_blank" rel="noopener noreferrer">{{ offer.url }}</a>
+    </div>
+    <div class="campaign-id">
+        Offer ID: {{ offer.id }}
+    </div>
+</div>
+
+<h3 class="section-title">Общая статистика</h3>
 
 <div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Кампаний</div>
+        <div class="stat-value">{{ overall_stats.campaigns_count }}</div>
+    </div>
     <div class="stat-card">
         <div class="stat-label">Email клики</div>
         <div class="stat-value">{{ overall_stats.email_clicks }}</div>
@@ -26,38 +47,38 @@
     </div>
 </div>
 
-<h3 class="section-title">
-    Статистика по доменам 
-    <span class="auto-update">(обновляется автоматически)</span>
-</h3>
+<h3 class="section-title">Статистика по кампаниям</h3>
 
 <table>
     <thead>
         <tr>
-            <th>Домен</th>
+            <th>Кампания</th>
             <th>Email клики</th>
             <th>Landing клики</th>
             <th>Конверсии</th>
             <th>Отписки</th>
-            <th>Конверсия (%)</th>
+            <th>Действия</th>
         </tr>
     </thead>
     <tbody>
-        {% for stat in domain_stats %}
+        {% for stat in campaigns_stats %}
         <tr>
-            <td>{{ stat.domain }}</td>
+            <td><a href="/campaign/{{ stat.id }}">{{ stat.name }}</a></td>
             <td>{{ stat.email_clicks }}</td>
             <td>{{ stat.landing_clicks }}</td>
             <td>{{ stat.conversions }}</td>
             <td>{{ stat.unsubscribes }}</td>
-            <td>{{ "%.1f"|format(stat.conversion_rate) }}%</td>
+            <td>
+                <a href="/campaign/{{ stat.id }}" class="btn btn-secondary" style="padding: 5px 10px; font-size: 12px;">Детали</a>
+            </td>
         </tr>
         {% else %}
         <tr>
             <td colspan="6" style="text-align: center; color: #95a5a6;">
-                Нет данных
+                Нет кампаний с этим оффером
             </td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
+{% endblock %}

@@ -19,10 +19,10 @@ async def track_event(
     Все дополнительные query параметры сохраняются в extra_params.
     """
     
-    if event not in ["email_click", "landing_click", "conversion"]:
+    if event not in ["email_click", "landing_click", "conversion", "unsubscribe"]:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid event type: {event}. Must be one of: email_click, landing_click, conversion"
+            detail=f"Invalid event type: {event}. Must be one of: email_click, landing_click, conversion, unsubscribe"
         )
     
     # Проверяем существование кампании

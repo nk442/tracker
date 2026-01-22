@@ -6,6 +6,7 @@
             <th>Email клик</th>
             <th>Landing клик</th>
             <th>Конверсия</th>
+            <th>Отписка</th>
         </tr>
     </thead>
     <tbody id="user-journeys-tbody">
@@ -16,10 +17,11 @@
             <td>{% if journey.has_email_click %}<span class="check-mark">✓</span>{% else %}<span class="cross-mark">✗</span>{% endif %}</td>
             <td>{% if journey.has_landing_click %}<span class="check-mark">✓</span>{% else %}<span class="cross-mark">✗</span>{% endif %}</td>
             <td>{% if journey.has_conversion %}<span class="check-mark">✓</span>{% else %}<span class="cross-mark">✗</span>{% endif %}</td>
+            <td>{% if journey.has_unsubscribe %}<span class="check-mark">✓</span>{% else %}<span class="cross-mark">✗</span>{% endif %}</td>
         </tr>
         {% else %}
         <tr>
-            <td colspan="5" style="text-align: center; color: #95a5a6;">
+            <td colspan="6" style="text-align: center; color: #95a5a6;">
                 Нет данных
             </td>
         </tr>

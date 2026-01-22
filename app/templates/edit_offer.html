@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Редактировать оффер{% endblock %}
+
+{% block content %}
+<a href="/offer/{{ offer.id }}" class="back-link">← Назад к офферу</a>
+
+<div class="card">
+    <h2 class="section-title">Редактировать оффер</h2>
+    
+    <form hx-post="/offer/{{ offer.id }}/update" hx-swap="none">
+        <div class="form-group">
+            <label for="name">Название оффера</label>
+            <input type="text" id="name" name="name" value="{{ offer.name }}" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="url">Offer URL</label>
+            <input type="url" id="url" name="url" value="{{ offer.url }}" required>
+        </div>
+        
+        <button type="submit" class="btn">Сохранить изменения</button>
+    </form>
+</div>
+{% endblock %}

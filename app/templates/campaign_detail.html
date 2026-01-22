@@ -9,10 +9,31 @@
 {% block content %}
 <div class="campaign-header">
     <h2 class="campaign-title">{{ campaign.name }}</h2>
-    <div class="campaign-url">Offer: {{ campaign.offer_url }}</div>
+    <div class="campaign-url">
+        Оффер: 
+        {% if campaign.offer_id %}
+            <a href="/offer/{{ campaign.offer_id }}">{% if campaign.offer_name %}{{ campaign.offer_name }}{% else %}Оффер #{{ campaign.offer_id }}{% endif %}</a>
+        {% else %}
+            {{ campaign.offer_url }}
+        {% endif %}
+    </div>
     <div class="campaign-id">
         Campaign ID: {{ campaign.id }}
         <button class="btn" onclick="navigator.clipboard.writeText('{{ campaign.id }}')">Копировать</button>
+    </div>
+    <div style="margin-top: 15px;">
+        <form hx-post="/campaign/{{ campaign.id }}/update-offer" hx-swap="none" style="display: inline-flex; gap: 10px; align-items: center;">
+            <label for="offer-select" style="margin-right: 10px;">Изменить оффер:</label>
+            <select id="offer-select" name="offer_id" required style="padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                {% for offer in all_offers %}
+                <option value="{{ offer.id }}" {% if campaign.offer_id == offer.id %}selected{% endif %}>
+                    {{ offer.name }}
+                </option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn" style="padding: 8px 15px;">Сохранить</button>
+        </form>
+        <a href="/offers" style="margin-left: 10px; font-size: 14px; color: #3498db;">Управление офферами</a>
     </div>
 </div>
 
