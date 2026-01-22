@@ -1,42 +1,49 @@
-from contextlib import asynccontextmanager
-import asyncpg
+"""
+Настройка подключения к базе данных через SQLAlchemy
+"""
+
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import sessionmaker
 from app.config import settings
+from app.models.database import Base
 
 
 class Database:
+    """Класс для управления подключением к базе данных через SQLAlchemy"""
+    
     def __init__(self):
-        self.pool: asyncpg.Pool | None = None
+        self.engine = None
+        self.async_session_maker: async_sessionmaker[AsyncSession] | None = None
     
     async def connect(self):
-        if not self.pool:
-            self.pool = await asyncpg.create_pool(
-                dsn=settings.database_url,
-                min_size=2,
-                max_size=10
+        """Создает async engine и session maker"""
+        if not self.engine:
+            # Преобразуем postgresql:// в postgresql+asyncpg:// для asyncpg
+            database_url = settings.database_url.replace(
+                "postgresql://", "postgresql+asyncpg://", 1
+            )
+            
+            self.engine = create_async_engine(
+                database_url,
+                echo=False,
+                pool_size=10,
+                max_overflow=20,
+                pool_pre_ping=True
+            )
+            
+            self.async_session_maker = async_sessionmaker(
+                self.engine,
+                class_=AsyncSession,
+                expire_on_commit=False
             )
     
     async def disconnect(self):
-        if self.pool:
-            await self.pool.close()
-            self.pool = None
+        """Закрывает engine"""
+        if self.engine:
+            await self.engine.dispose()
+            self.engine = None
+            self.async_session_maker = None
     
-    async def fetch_all(self, query: str, *args):
-        if not self.pool:
-            raise RuntimeError("Database pool is not initialized")
-        async with self.pool.acquire() as connection:
-            return await connection.fetch(query, *args)
-    
-    async def fetch_one(self, query: str, *args):
-        if not self.pool:
-            raise RuntimeError("Database pool is not initialized")
-        async with self.pool.acquire() as connection:
-            return await connection.fetchrow(query, *args)
-    
-    async def execute(self, query: str, *args):
-        if not self.pool:
-            raise RuntimeError("Database pool is not initialized")
-        async with self.pool.acquire() as connection:
-            return await connection.execute(query, *args)
 
 
 db = Database()

@@ -1,6 +1,10 @@
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from app.models.schemas import EventResponse, DomainEmailsSentUpdate
-from app.database import db
+from app.models.database import Campaign, Event, CampaignDomainEmails
+from app.dependencies import get_db_session
 import json
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -12,7 +16,8 @@ async def track_event(
     cid: int,
     event: str,
     email: str,
-    domain: str
+    domain: str,
+    session: AsyncSession = Depends(get_db_session)
 ):
     """
     Принимает события от внешних сайтов.
@@ -26,10 +31,10 @@ async def track_event(
         )
     
     # Проверяем существование кампании
-    campaign = await db.fetch_one(
-        "SELECT id FROM campaigns WHERE id = $1",
-        cid
+    result = await session.execute(
+        select(Campaign).where(Campaign.id == cid)
     )
+    campaign = result.scalar_one_or_none()
     
     if not campaign:
         raise HTTPException(
@@ -52,30 +57,29 @@ async def track_event(
     if query_params:
         extra_params = query_params
     
-    # Сохраняем событие в БД
-    result = await db.fetch_one(
-        """
-        INSERT INTO events (campaign_id, event_type, email, domain, ip, user_agent, extra_params)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id
-        """,
-        cid,
-        event,
-        email,
-        domain,
-        client_ip,
-        user_agent,
-        json.dumps(extra_params) if extra_params else None
+    # Создаем новое событие
+    new_event = Event(
+        campaign_id=cid,
+        event_type=event,
+        email=email,
+        domain=domain,
+        ip=client_ip,
+        user_agent=user_agent,
+        extra_params=extra_params if extra_params else None
     )
     
-    return EventResponse(status="ok", event_id=result["id"])
+    session.add(new_event)
+    await session.flush()
+    
+    return EventResponse(status="ok", event_id=new_event.id)
 
 
 @router.put("/campaign/{campaign_id}/domain/{domain}/emails-sent")
 async def update_domain_emails_sent(
     campaign_id: int,
     domain: str,
-    data: DomainEmailsSentUpdate
+    data: DomainEmailsSentUpdate,
+    session: AsyncSession = Depends(get_db_session)
 ):
     """
     Обновляет количество отправленных писем для домена в кампании.
@@ -83,10 +87,10 @@ async def update_domain_emails_sent(
     """
     
     # Проверяем существование кампании
-    campaign = await db.fetch_one(
-        "SELECT id FROM campaigns WHERE id = $1",
-        campaign_id
+    result = await session.execute(
+        select(Campaign).where(Campaign.id == campaign_id)
     )
+    campaign = result.scalar_one_or_none()
     
     if not campaign:
         raise HTTPException(
@@ -95,37 +99,27 @@ async def update_domain_emails_sent(
         )
     
     # Проверяем, существует ли запись для этого домена и кампании
-    existing = await db.fetch_one(
-        """
-        SELECT id FROM campaign_domain_emails 
-        WHERE campaign_id = $1 AND domain = $2
-        """,
-        campaign_id,
-        domain
+    result = await session.execute(
+        select(CampaignDomainEmails).where(
+            CampaignDomainEmails.campaign_id == campaign_id,
+            CampaignDomainEmails.domain == domain
+        )
     )
+    existing = result.scalar_one_or_none()
     
     if existing:
         # Обновляем существующую запись
-        await db.execute(
-            """
-            UPDATE campaign_domain_emails 
-            SET emails_sent = $1, updated_at = NOW()
-            WHERE campaign_id = $2 AND domain = $3
-            """,
-            data.emails_sent,
-            campaign_id,
-            domain
-        )
+        existing.emails_sent = data.emails_sent
+        session.add(existing)
     else:
         # Создаем новую запись
-        await db.execute(
-            """
-            INSERT INTO campaign_domain_emails (campaign_id, domain, emails_sent)
-            VALUES ($1, $2, $3)
-            """,
-            campaign_id,
-            domain,
-            data.emails_sent
+        new_record = CampaignDomainEmails(
+            campaign_id=campaign_id,
+            domain=domain,
+            emails_sent=data.emails_sent
         )
+        session.add(new_record)
+    
+    await session.flush()
     
     return {"status": "ok", "campaign_id": campaign_id, "domain": domain, "emails_sent": data.emails_sent}

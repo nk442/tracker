@@ -1,8 +1,12 @@
 import logging
-from fastapi import APIRouter, Request, HTTPException, Form
+from fastapi import APIRouter, Request, HTTPException, Form, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from app.database import db
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func, case, or_, and_, distinct
+from sqlalchemy.orm import selectinload
+from app.dependencies import get_db_session
+from app.models.database import Campaign, Event, Offer, CampaignDomainEmails
 from app.models.schemas import CampaignCreate
 from app.config import settings
 
@@ -12,21 +16,42 @@ templates = Jinja2Templates(directory="app/templates")
 
 
 @router.get("/", response_class=HTMLResponse)
-async def home(request: Request):
+async def home(
+    request: Request,
+    session: AsyncSession = Depends(get_db_session)
+):
     """Главная страница со списком всех кампаний"""
     
-    campaigns = await db.fetch_all("""
-        SELECT 
-            c.id,
-            c.name,
-            c.created_at,
-            COUNT(CASE WHEN e.event_type IN ('email_click', 'landing_click') THEN 1 END) as clicks,
-            COUNT(CASE WHEN e.event_type = 'conversion' THEN 1 END) as conversions
-        FROM campaigns c
-        LEFT JOIN events e ON c.id = e.campaign_id
-        GROUP BY c.id, c.name, c.created_at
-        ORDER BY c.created_at DESC
-    """)
+    stmt = (
+        select(
+            Campaign.id,
+            Campaign.name,
+            Campaign.created_at,
+            func.count(
+                case(
+                    (Event.event_type.in_(["email_click", "landing_click"]), 1)
+                )
+            ).label("clicks"),
+            func.count(
+                case((Event.event_type == "conversion", 1))
+            ).label("conversions")
+        )
+        .outerjoin(Event, Campaign.id == Event.campaign_id)
+        .group_by(Campaign.id, Campaign.name, Campaign.created_at)
+        .order_by(Campaign.created_at.desc())
+    )
+    
+    result = await session.execute(stmt)
+    campaigns = [
+        {
+            "id": row.id,
+            "name": row.name,
+            "created_at": row.created_at,
+            "clicks": row.clicks or 0,
+            "conversions": row.conversions or 0
+        }
+        for row in result.all()
+    ]
     
     return templates.TemplateResponse(
         "home.html",
@@ -35,21 +60,42 @@ async def home(request: Request):
 
 
 @router.get("/campaigns-table", response_class=HTMLResponse)
-async def campaigns_table(request: Request):
+async def campaigns_table(
+    request: Request,
+    session: AsyncSession = Depends(get_db_session)
+):
     """HTMX endpoint для обновления таблицы кампаний"""
     
-    campaigns = await db.fetch_all("""
-        SELECT 
-            c.id,
-            c.name,
-            c.created_at,
-            COUNT(CASE WHEN e.event_type IN ('email_click', 'landing_click') THEN 1 END) as clicks,
-            COUNT(CASE WHEN e.event_type = 'conversion' THEN 1 END) as conversions
-        FROM campaigns c
-        LEFT JOIN events e ON c.id = e.campaign_id
-        GROUP BY c.id, c.name, c.created_at
-        ORDER BY c.created_at DESC
-    """)
+    stmt = (
+        select(
+            Campaign.id,
+            Campaign.name,
+            Campaign.created_at,
+            func.count(
+                case(
+                    (Event.event_type.in_(["email_click", "landing_click"]), 1)
+                )
+            ).label("clicks"),
+            func.count(
+                case((Event.event_type == "conversion", 1))
+            ).label("conversions")
+        )
+        .outerjoin(Event, Campaign.id == Event.campaign_id)
+        .group_by(Campaign.id, Campaign.name, Campaign.created_at)
+        .order_by(Campaign.created_at.desc())
+    )
+    
+    result = await session.execute(stmt)
+    campaigns = [
+        {
+            "id": row.id,
+            "name": row.name,
+            "created_at": row.created_at,
+            "clicks": row.clicks or 0,
+            "conversions": row.conversions or 0
+        }
+        for row in result.all()
+    ]
     
     return templates.TemplateResponse(
         "partials/campaigns_table.html",
@@ -58,9 +104,17 @@ async def campaigns_table(request: Request):
 
 
 @router.get("/create", response_class=HTMLResponse)
-async def create_campaign_page(request: Request):
+async def create_campaign_page(
+    request: Request,
+    session: AsyncSession = Depends(get_db_session)
+):
     """Страница создания новой кампании"""
-    offers = await db.fetch_all("SELECT id, name, url FROM offers ORDER BY name")
+    stmt = select(Offer.id, Offer.name, Offer.url).order_by(Offer.name)
+    result = await session.execute(stmt)
+    offers = [
+        {"id": row.id, "name": row.name, "url": row.url}
+        for row in result.all()
+    ]
     return templates.TemplateResponse("create.html", {"request": request, "offers": offers})
 
 
@@ -68,7 +122,8 @@ async def create_campaign_page(request: Request):
 async def create_campaign(
     request: Request,
     name: str = Form(...),
-    offer_id: int = Form(None)
+    offer_id: int = Form(None),
+    session: AsyncSession = Depends(get_db_session)
 ):
     """Создание новой кампании"""
     
@@ -78,185 +133,204 @@ async def create_campaign(
     if not offer_id:
         raise HTTPException(status_code=400, detail="Offer is required")
     
-    # Получаем URL оффера
-    offer = await db.fetch_one("SELECT url FROM offers WHERE id = $1", offer_id)
+    # Получаем оффер
+    result = await session.execute(select(Offer).where(Offer.id == offer_id))
+    offer = result.scalar_one_or_none()
     if not offer:
         raise HTTPException(status_code=404, detail="Offer not found")
     
-    result = await db.fetch_one(
-        "INSERT INTO campaigns (name, offer_id, offer_url) VALUES ($1, $2, $3) RETURNING id",
-        name,
-        offer_id,
-        offer["url"]
+    # Создаем новую кампанию
+    new_campaign = Campaign(
+        name=name,
+        offer_id=offer_id,
+        offer_url=offer.url
     )
+    session.add(new_campaign)
+    await session.flush()
+    
+    campaign_id = new_campaign.id
     
     # Для HTMX возвращаем редирект
     if request.headers.get("hx-request"):
         return HTMLResponse(
             content="",
-            headers={"HX-Redirect": f"/campaign/{result['id']}"}
+            headers={"HX-Redirect": f"/campaign/{campaign_id}"}
         )
     
-    return RedirectResponse(url=f"/campaign/{result['id']}", status_code=303)
+    return RedirectResponse(url=f"/campaign/{campaign_id}", status_code=303)
 
 
 @router.get("/campaign/{campaign_id}", response_class=HTMLResponse)
-async def campaign_detail(request: Request, campaign_id: int):
+async def campaign_detail(
+    request: Request,
+    campaign_id: int,
+    session: AsyncSession = Depends(get_db_session)
+):
     """Детальная страница кампании с полной статистикой"""
     
     try:
         logger.info(f"Loading campaign detail for campaign_id={campaign_id}")
         
         # Получаем информацию о кампании
-        campaign_row = await db.fetch_one(
-            """
-            SELECT 
-                c.id, 
-                c.name, 
-                c.offer_url, 
-                c.offer_id,
-                c.created_at,
-                o.name as offer_name
-            FROM campaigns c
-            LEFT JOIN offers o ON c.offer_id = o.id
-            WHERE c.id = $1
-            """,
-            campaign_id
+        stmt = (
+            select(Campaign, Offer.name.label("offer_name"))
+            .outerjoin(Offer, Campaign.offer_id == Offer.id)
+            .where(Campaign.id == campaign_id)
         )
+        result = await session.execute(stmt)
+        row = result.first()
         
-        if not campaign_row:
+        if not row:
             logger.warning(f"Campaign {campaign_id} not found")
             raise HTTPException(status_code=404, detail="Campaign not found")
         
-        logger.debug(f"Campaign row: {dict(campaign_row)}")
-        
-        # Преобразуем Record в словарь
+        campaign_obj = row[0]
         campaign = {
-            "id": campaign_row["id"],
-            "name": campaign_row["name"],
-            "offer_url": campaign_row["offer_url"],
-            "offer_id": campaign_row["offer_id"],
-            "offer_name": campaign_row["offer_name"],
-            "created_at": campaign_row["created_at"]
+            "id": campaign_obj.id,
+            "name": campaign_obj.name,
+            "offer_url": campaign_obj.offer_url,
+            "offer_id": campaign_obj.offer_id,
+            "offer_name": row.offer_name,
+            "created_at": campaign_obj.created_at
         }
         
         # Получаем список всех офферов для выбора
-        all_offers = await db.fetch_all("SELECT id, name FROM offers ORDER BY name")
+        offers_stmt = select(Offer.id, Offer.name).order_by(Offer.name)
+        offers_result = await session.execute(offers_stmt)
+        all_offers = [
+            {"id": row.id, "name": row.name}
+            for row in offers_result.all()
+        ]
         
         logger.debug("Fetching overall stats")
         # Общая статистика
-        overall_stats_row = await db.fetch_one("""
-            SELECT 
-                COUNT(CASE WHEN event_type = 'email_click' THEN 1 END) as email_clicks,
-                COUNT(CASE WHEN event_type = 'landing_click' THEN 1 END) as landing_clicks,
-                COUNT(CASE WHEN event_type = 'conversion' THEN 1 END) as conversions,
-                COUNT(CASE WHEN event_type = 'unsubscribe' THEN 1 END) as unsubscribes
-            FROM events
-            WHERE campaign_id = $1
-        """, campaign_id)
+        stats_stmt = (
+            select(
+                func.count(case((Event.event_type == "email_click", 1))).label("email_clicks"),
+                func.count(case((Event.event_type == "landing_click", 1))).label("landing_clicks"),
+                func.count(case((Event.event_type == "conversion", 1))).label("conversions"),
+                func.count(case((Event.event_type == "unsubscribe", 1))).label("unsubscribes")
+            )
+            .where(Event.campaign_id == campaign_id)
+        )
+        stats_result = await session.execute(stats_stmt)
+        stats_row = stats_result.first()
         
-        logger.debug(f"Overall stats row: {dict(overall_stats_row) if overall_stats_row else None}")
-        
-        # Преобразуем Record в словарь и обрабатываем None значения
         overall_stats = {
-            "email_clicks": overall_stats_row["email_clicks"] or 0 if overall_stats_row else 0,
-            "landing_clicks": overall_stats_row["landing_clicks"] or 0 if overall_stats_row else 0,
-            "conversions": overall_stats_row["conversions"] or 0 if overall_stats_row else 0,
-            "unsubscribes": overall_stats_row["unsubscribes"] or 0 if overall_stats_row else 0
+            "email_clicks": stats_row.email_clicks or 0 if stats_row else 0,
+            "landing_clicks": stats_row.landing_clicks or 0 if stats_row else 0,
+            "conversions": stats_row.conversions or 0 if stats_row else 0,
+            "unsubscribes": stats_row.unsubscribes or 0 if stats_row else 0
         }
         
-        # Вычисляем conversion rate
         email_clicks = overall_stats["email_clicks"]
         conversions = overall_stats["conversions"]
         conversion_rate = (conversions / email_clicks * 100) if email_clicks > 0 else 0
         
         logger.debug("Fetching domain stats")
-        # Статистика по доменам - объединяем данные из events и campaign_domain_emails
-        domain_stats_rows = await db.fetch_all("""
-            SELECT 
-                all_domains.domain,
-                COUNT(CASE WHEN e.event_type = 'email_click' THEN 1 END) as email_clicks,
-                COUNT(CASE WHEN e.event_type = 'landing_click' THEN 1 END) as landing_clicks,
-                COUNT(CASE WHEN e.event_type = 'conversion' THEN 1 END) as conversions,
-                COUNT(CASE WHEN e.event_type = 'unsubscribe' THEN 1 END) as unsubscribes,
-                COALESCE(MAX(cde.emails_sent), 0) as emails_sent
-            FROM (
-                SELECT DISTINCT domain FROM events WHERE campaign_id = $1
-                UNION
-                SELECT DISTINCT domain FROM campaign_domain_emails WHERE campaign_id = $1
-            ) all_domains
-            LEFT JOIN events e ON all_domains.domain = e.domain AND e.campaign_id = $1
-            LEFT JOIN campaign_domain_emails cde ON all_domains.domain = cde.domain AND cde.campaign_id = $1
-            GROUP BY all_domains.domain
-            ORDER BY email_clicks DESC
-        """, campaign_id)
+        # Получаем уникальные домены из events и campaign_domain_emails
+        events_domains_stmt = (
+            select(distinct(Event.domain))
+            .where(Event.campaign_id == campaign_id)
+        )
+        emails_domains_stmt = (
+            select(distinct(CampaignDomainEmails.domain))
+            .where(CampaignDomainEmails.campaign_id == campaign_id)
+        )
         
-        logger.debug(f"Domain stats rows count: {len(domain_stats_rows)}")
+        events_domains_result = await session.execute(events_domains_stmt)
+        emails_domains_result = await session.execute(emails_domains_stmt)
         
-        # Преобразуем Record объекты в словари и добавляем conversion rate
+        all_domains = set()
+        for row in events_domains_result.all():
+            all_domains.add(row[0])
+        for row in emails_domains_result.all():
+            all_domains.add(row[0])
+        
+        # Для каждого домена получаем статистику
         domain_stats = []
-        for stat in domain_stats_rows:
-            try:
-                e_clicks = stat["email_clicks"] or 0
-                convs = stat["conversions"] or 0
-                domain_stats.append({
-                    "domain": stat["domain"],
-                    "email_clicks": e_clicks,
-                    "landing_clicks": stat["landing_clicks"] or 0,
-                    "conversions": convs,
-                    "unsubscribes": stat["unsubscribes"] or 0,
-                    "emails_sent": stat["emails_sent"] or 0,
-                    "conversion_rate": (convs / e_clicks * 100) if e_clicks > 0 else 0
-                })
-            except Exception as e:
-                logger.error(f"Error processing domain stat: {e}, stat={dict(stat)}", exc_info=True)
-                raise
+        for domain in all_domains:
+            # Статистика из events
+            domain_events_stmt = (
+                select(
+                    func.count(case((Event.event_type == "email_click", 1))).label("email_clicks"),
+                    func.count(case((Event.event_type == "landing_click", 1))).label("landing_clicks"),
+                    func.count(case((Event.event_type == "conversion", 1))).label("conversions"),
+                    func.count(case((Event.event_type == "unsubscribe", 1))).label("unsubscribes")
+                )
+                .where(and_(Event.campaign_id == campaign_id, Event.domain == domain))
+            )
+            domain_events_result = await session.execute(domain_events_stmt)
+            domain_events_row = domain_events_result.first()
+            
+            # Количество отправленных писем
+            emails_stmt = (
+                select(CampaignDomainEmails.emails_sent)
+                .where(
+                    and_(
+                        CampaignDomainEmails.campaign_id == campaign_id,
+                        CampaignDomainEmails.domain == domain
+                    )
+                )
+            )
+            emails_result = await session.execute(emails_stmt)
+            emails_row = emails_result.first()
+            emails_sent = emails_row[0] if emails_row else 0
+            
+            e_clicks = domain_events_row.email_clicks or 0 if domain_events_row else 0
+            convs = domain_events_row.conversions or 0 if domain_events_row else 0
+            
+            domain_stats.append({
+                "domain": domain,
+                "email_clicks": e_clicks,
+                "landing_clicks": domain_events_row.landing_clicks or 0 if domain_events_row else 0,
+                "conversions": convs,
+                "unsubscribes": domain_events_row.unsubscribes or 0 if domain_events_row else 0,
+                "emails_sent": emails_sent,
+                "conversion_rate": (convs / e_clicks * 100) if e_clicks > 0 else 0
+            })
+        
+        domain_stats.sort(key=lambda x: x["email_clicks"], reverse=True)
         
         logger.debug("Fetching user journeys")
         # Получаем уникальных пользователей с их путешествием
-        user_journeys_rows = await db.fetch_all("""
-            SELECT DISTINCT
-                email,
-                domain,
-                BOOL_OR(event_type = 'email_click') as has_email_click,
-                BOOL_OR(event_type = 'landing_click') as has_landing_click,
-                BOOL_OR(event_type = 'conversion') as has_conversion,
-                BOOL_OR(event_type = 'unsubscribe') as has_unsubscribe,
-                MIN(created_at) as first_event
-            FROM events
-            WHERE campaign_id = $1
-            GROUP BY email, domain
-            ORDER BY first_event DESC
-            LIMIT 50
-        """, campaign_id)
+        user_journeys_stmt = (
+            select(
+                Event.email,
+                Event.domain,
+                func.bool_or(Event.event_type == "email_click").label("has_email_click"),
+                func.bool_or(Event.event_type == "landing_click").label("has_landing_click"),
+                func.bool_or(Event.event_type == "conversion").label("has_conversion"),
+                func.bool_or(Event.event_type == "unsubscribe").label("has_unsubscribe"),
+                func.min(Event.created_at).label("first_event")
+            )
+            .where(Event.campaign_id == campaign_id)
+            .group_by(Event.email, Event.domain)
+            .order_by(func.min(Event.created_at).desc())
+            .limit(50)
+        )
+        user_journeys_result = await session.execute(user_journeys_stmt)
         
-        logger.debug(f"User journeys rows count: {len(user_journeys_rows)}")
-        
-        # Преобразуем Record объекты в словари
         user_journeys = []
-        for journey in user_journeys_rows:
-            try:
-                user_journeys.append({
-                    "email": journey["email"],
-                    "domain": journey["domain"],
-                    "has_email_click": bool(journey["has_email_click"]),
-                    "has_landing_click": bool(journey["has_landing_click"]),
-                    "has_conversion": bool(journey["has_conversion"]),
-                    "has_unsubscribe": bool(journey["has_unsubscribe"])
-                })
-            except Exception as e:
-                logger.error(f"Error processing user journey: {e}, journey={dict(journey)}", exc_info=True)
-                raise
+        for row in user_journeys_result.all():
+            user_journeys.append({
+                "email": row.email,
+                "domain": row.domain,
+                "has_email_click": bool(row.has_email_click),
+                "has_landing_click": bool(row.has_landing_click),
+                "has_conversion": bool(row.has_conversion),
+                "has_unsubscribe": bool(row.has_unsubscribe)
+            })
         
         logger.debug("Fetching total users")
         # Получаем общее количество уникальных пользователей
-        total_users_row = await db.fetch_one("""
-            SELECT COUNT(DISTINCT email) as total
-            FROM events
-            WHERE campaign_id = $1
-        """, campaign_id)
-        
-        total_users = total_users_row["total"] or 0 if total_users_row else 0
+        total_users_stmt = (
+            select(func.count(distinct(Event.email)).label("total"))
+            .where(Event.campaign_id == campaign_id)
+        )
+        total_users_result = await session.execute(total_users_stmt)
+        total_users_row = total_users_result.first()
+        total_users = total_users_row.total or 0 if total_users_row else 0
         
         logger.debug("Rendering template")
         return templates.TemplateResponse(
@@ -290,76 +364,101 @@ async def campaign_detail(request: Request, campaign_id: int):
 
 
 @router.get("/campaign/{campaign_id}/stats", response_class=HTMLResponse)
-async def campaign_stats(request: Request, campaign_id: int):
+async def campaign_stats(
+    request: Request,
+    campaign_id: int,
+    session: AsyncSession = Depends(get_db_session)
+):
     """HTMX endpoint для обновления статистики"""
     
     try:
         logger.debug(f"Loading stats for campaign_id={campaign_id}")
         
         # Общая статистика
-        overall_stats_row = await db.fetch_one("""
-            SELECT 
-                COUNT(CASE WHEN event_type = 'email_click' THEN 1 END) as email_clicks,
-                COUNT(CASE WHEN event_type = 'landing_click' THEN 1 END) as landing_clicks,
-                COUNT(CASE WHEN event_type = 'conversion' THEN 1 END) as conversions
-            FROM events
-            WHERE campaign_id = $1
-        """, campaign_id)
+        stats_stmt = (
+            select(
+                func.count(case((Event.event_type == "email_click", 1))).label("email_clicks"),
+                func.count(case((Event.event_type == "landing_click", 1))).label("landing_clicks"),
+                func.count(case((Event.event_type == "conversion", 1))).label("conversions"),
+                func.count(case((Event.event_type == "unsubscribe", 1))).label("unsubscribes")
+            )
+            .where(Event.campaign_id == campaign_id)
+        )
+        stats_result = await session.execute(stats_stmt)
+        stats_row = stats_result.first()
         
-        logger.debug(f"Overall stats row: {dict(overall_stats_row) if overall_stats_row else None}")
-        
-        # Преобразуем Record в словарь и обрабатываем None значения
         overall_stats = {
-            "email_clicks": overall_stats_row["email_clicks"] or 0 if overall_stats_row else 0,
-            "landing_clicks": overall_stats_row["landing_clicks"] or 0 if overall_stats_row else 0,
-            "conversions": overall_stats_row["conversions"] or 0 if overall_stats_row else 0,
-            "unsubscribes": overall_stats_row["unsubscribes"] or 0 if overall_stats_row else 0
+            "email_clicks": stats_row.email_clicks or 0 if stats_row else 0,
+            "landing_clicks": stats_row.landing_clicks or 0 if stats_row else 0,
+            "conversions": stats_row.conversions or 0 if stats_row else 0,
+            "unsubscribes": stats_row.unsubscribes or 0 if stats_row else 0
         }
         
         email_clicks = overall_stats["email_clicks"]
         conversions = overall_stats["conversions"]
         conversion_rate = (conversions / email_clicks * 100) if email_clicks > 0 else 0
         
-        # Статистика по доменам - объединяем данные из events и campaign_domain_emails
-        domain_stats = await db.fetch_all("""
-            SELECT 
-                all_domains.domain,
-                COUNT(CASE WHEN e.event_type = 'email_click' THEN 1 END) as email_clicks,
-                COUNT(CASE WHEN e.event_type = 'landing_click' THEN 1 END) as landing_clicks,
-                COUNT(CASE WHEN e.event_type = 'conversion' THEN 1 END) as conversions,
-                COUNT(CASE WHEN e.event_type = 'unsubscribe' THEN 1 END) as unsubscribes,
-                COALESCE(MAX(cde.emails_sent), 0) as emails_sent
-            FROM (
-                SELECT DISTINCT domain FROM events WHERE campaign_id = $1
-                UNION
-                SELECT DISTINCT domain FROM campaign_domain_emails WHERE campaign_id = $1
-            ) all_domains
-            LEFT JOIN events e ON all_domains.domain = e.domain AND e.campaign_id = $1
-            LEFT JOIN campaign_domain_emails cde ON all_domains.domain = cde.domain AND cde.campaign_id = $1
-            GROUP BY all_domains.domain
-            ORDER BY email_clicks DESC
-        """, campaign_id)
+        # Получаем уникальные домены
+        events_domains_stmt = (
+            select(distinct(Event.domain))
+            .where(Event.campaign_id == campaign_id)
+        )
+        emails_domains_stmt = (
+            select(distinct(CampaignDomainEmails.domain))
+            .where(CampaignDomainEmails.campaign_id == campaign_id)
+        )
         
-        logger.debug(f"Domain stats rows count: {len(domain_stats)}")
+        events_domains_result = await session.execute(events_domains_stmt)
+        emails_domains_result = await session.execute(emails_domains_stmt)
         
-        # Преобразуем Record объекты в словари
+        all_domains = set()
+        for row in events_domains_result.all():
+            all_domains.add(row[0])
+        for row in emails_domains_result.all():
+            all_domains.add(row[0])
+        
+        # Для каждого домена получаем статистику
         domain_stats_list = []
-        for stat in domain_stats:
-            try:
-                e_clicks = stat["email_clicks"] or 0
-                convs = stat["conversions"] or 0
-                domain_stats_list.append({
-                    "domain": stat["domain"],
-                    "email_clicks": e_clicks,
-                    "landing_clicks": stat["landing_clicks"] or 0,
-                    "conversions": convs,
-                    "unsubscribes": stat["unsubscribes"] or 0,
-                    "emails_sent": stat["emails_sent"] or 0,
-                    "conversion_rate": (convs / e_clicks * 100) if e_clicks > 0 else 0
-                })
-            except Exception as e:
-                logger.error(f"Error processing domain stat: {e}, stat={dict(stat)}", exc_info=True)
-                raise
+        for domain in all_domains:
+            domain_events_stmt = (
+                select(
+                    func.count(case((Event.event_type == "email_click", 1))).label("email_clicks"),
+                    func.count(case((Event.event_type == "landing_click", 1))).label("landing_clicks"),
+                    func.count(case((Event.event_type == "conversion", 1))).label("conversions"),
+                    func.count(case((Event.event_type == "unsubscribe", 1))).label("unsubscribes")
+                )
+                .where(and_(Event.campaign_id == campaign_id, Event.domain == domain))
+            )
+            domain_events_result = await session.execute(domain_events_stmt)
+            domain_events_row = domain_events_result.first()
+            
+            emails_stmt = (
+                select(CampaignDomainEmails.emails_sent)
+                .where(
+                    and_(
+                        CampaignDomainEmails.campaign_id == campaign_id,
+                        CampaignDomainEmails.domain == domain
+                    )
+                )
+            )
+            emails_result = await session.execute(emails_stmt)
+            emails_row = emails_result.first()
+            emails_sent = emails_row[0] if emails_row else 0
+            
+            e_clicks = domain_events_row.email_clicks or 0 if domain_events_row else 0
+            convs = domain_events_row.conversions or 0 if domain_events_row else 0
+            
+            domain_stats_list.append({
+                "domain": domain,
+                "email_clicks": e_clicks,
+                "landing_clicks": domain_events_row.landing_clicks or 0 if domain_events_row else 0,
+                "conversions": convs,
+                "unsubscribes": domain_events_row.unsubscribes or 0 if domain_events_row else 0,
+                "emails_sent": emails_sent,
+                "conversion_rate": (convs / e_clicks * 100) if e_clicks > 0 else 0
+            })
+        
+        domain_stats_list.sort(key=lambda x: x["email_clicks"], reverse=True)
         
         return templates.TemplateResponse(
             "partials/campaign_stats.html",
@@ -387,75 +486,57 @@ async def campaign_users(
     campaign_id: int,
     domain: str | None = None,
     email_search: str | None = None,
-    offset: int = 0
+    offset: int = 0,
+    session: AsyncSession = Depends(get_db_session)
 ):
     """HTMX endpoint для фильтрации и пагинации пользователей"""
     
-    query = """
-        SELECT DISTINCT
-            email,
-            domain,
-            BOOL_OR(event_type = 'email_click') as has_email_click,
-            BOOL_OR(event_type = 'landing_click') as has_landing_click,
-            BOOL_OR(event_type = 'conversion') as has_conversion,
-            BOOL_OR(event_type = 'unsubscribe') as has_unsubscribe,
-            MIN(created_at) as first_event
-        FROM events
-        WHERE campaign_id = $1
-    """
-    
-    params = [campaign_id]
-    param_idx = 2
+    # Строим запрос с фильтрами
+    conditions = [Event.campaign_id == campaign_id]
     
     if domain:
-        query += f" AND domain = ${param_idx}"
-        params.append(domain)
-        param_idx += 1
+        conditions.append(Event.domain == domain)
     
     if email_search:
-        query += f" AND email ILIKE ${param_idx}"
-        params.append(f"%{email_search}%")
-        param_idx += 1
+        conditions.append(Event.email.ilike(f"%{email_search}%"))
     
-    query += f"""
-        GROUP BY email, domain
-        ORDER BY first_event DESC
-        LIMIT 50 OFFSET ${param_idx}
-    """
-    params.append(offset)
+    stmt = (
+        select(
+            Event.email,
+            Event.domain,
+            func.bool_or(Event.event_type == "email_click").label("has_email_click"),
+            func.bool_or(Event.event_type == "landing_click").label("has_landing_click"),
+            func.bool_or(Event.event_type == "conversion").label("has_conversion"),
+            func.bool_or(Event.event_type == "unsubscribe").label("has_unsubscribe"),
+            func.min(Event.created_at).label("first_event")
+        )
+        .where(and_(*conditions))
+        .group_by(Event.email, Event.domain)
+        .order_by(func.min(Event.created_at).desc())
+        .limit(50)
+        .offset(offset)
+    )
     
-    user_journeys_rows = await db.fetch_all(query, *params)
-    
-    # Преобразуем Record объекты в словари
+    result = await session.execute(stmt)
     user_journeys = []
-    for journey in user_journeys_rows:
+    for row in result.all():
         user_journeys.append({
-            "email": journey["email"],
-            "domain": journey["domain"],
-            "has_email_click": bool(journey["has_email_click"]),
-            "has_landing_click": bool(journey["has_landing_click"]),
-            "has_conversion": bool(journey["has_conversion"]),
-            "has_unsubscribe": bool(journey["has_unsubscribe"])
+            "email": row.email,
+            "domain": row.domain,
+            "has_email_click": bool(row.has_email_click),
+            "has_landing_click": bool(row.has_landing_click),
+            "has_conversion": bool(row.has_conversion),
+            "has_unsubscribe": bool(row.has_unsubscribe)
         })
     
     # Получаем общее количество для текущего фильтра
-    count_query = """
-        SELECT COUNT(DISTINCT email) as total
-        FROM events
-        WHERE campaign_id = $1
-    """
-    count_params = [campaign_id]
-    
-    if domain:
-        count_query += " AND domain = $2"
-        count_params.append(domain)
-    
-    if email_search:
-        count_query += f" AND email ILIKE ${len(count_params) + 1}"
-        count_params.append(f"%{email_search}%")
-    
-    total_result = await db.fetch_one(count_query, *count_params)
-    total_users = total_result["total"] or 0 if total_result else 0
+    count_stmt = (
+        select(func.count(distinct(Event.email)).label("total"))
+        .where(and_(*conditions))
+    )
+    count_result = await session.execute(count_stmt)
+    count_row = count_result.first()
+    total_users = count_row.total or 0 if count_row else 0
     
     return templates.TemplateResponse(
         "partials/user_journeys.html",
@@ -474,22 +555,38 @@ async def campaign_users(
 # ==================== ОФФЕРЫ ====================
 
 @router.get("/offers", response_class=HTMLResponse)
-async def offers_list(request: Request):
+async def offers_list(
+    request: Request,
+    session: AsyncSession = Depends(get_db_session)
+):
     """Страница со списком всех офферов"""
-    offers = await db.fetch_all("""
-        SELECT 
-            o.id,
-            o.name,
-            o.url,
-            o.created_at,
-            COUNT(DISTINCT c.id) as campaigns_count,
-            COUNT(e.id) as total_events
-        FROM offers o
-        LEFT JOIN campaigns c ON o.id = c.offer_id
-        LEFT JOIN events e ON c.id = e.campaign_id
-        GROUP BY o.id, o.name, o.url, o.created_at
-        ORDER BY o.created_at DESC
-    """)
+    stmt = (
+        select(
+            Offer.id,
+            Offer.name,
+            Offer.url,
+            Offer.created_at,
+            func.count(distinct(Campaign.id)).label("campaigns_count"),
+            func.count(Event.id).label("total_events")
+        )
+        .outerjoin(Campaign, Offer.id == Campaign.offer_id)
+        .outerjoin(Event, Campaign.id == Event.campaign_id)
+        .group_by(Offer.id, Offer.name, Offer.url, Offer.created_at)
+        .order_by(Offer.created_at.desc())
+    )
+    
+    result = await session.execute(stmt)
+    offers = [
+        {
+            "id": row.id,
+            "name": row.name,
+            "url": row.url,
+            "created_at": row.created_at,
+            "campaigns_count": row.campaigns_count or 0,
+            "total_events": row.total_events or 0
+        }
+        for row in result.all()
+    ]
     
     return templates.TemplateResponse(
         "offers.html",
@@ -507,73 +604,106 @@ async def create_offer_page(request: Request):
 async def create_offer(
     request: Request,
     name: str = Form(...),
-    url: str = Form(...)
+    url: str = Form(...),
+    session: AsyncSession = Depends(get_db_session)
 ):
     """Создание нового оффера"""
     
     if not name or not url:
         raise HTTPException(status_code=400, detail="Name and URL are required")
     
-    result = await db.fetch_one(
-        "INSERT INTO offers (name, url) VALUES ($1, $2) RETURNING id",
-        name,
-        url
-    )
+    new_offer = Offer(name=name, url=url)
+    session.add(new_offer)
+    await session.flush()
+    
+    offer_id = new_offer.id
     
     if request.headers.get("hx-request"):
         return HTMLResponse(
             content="",
-            headers={"HX-Redirect": f"/offer/{result['id']}"}
+            headers={"HX-Redirect": f"/offer/{offer_id}"}
         )
     
-    return RedirectResponse(url=f"/offer/{result['id']}", status_code=303)
+    return RedirectResponse(url=f"/offer/{offer_id}", status_code=303)
 
 
 @router.get("/offer/{offer_id}", response_class=HTMLResponse)
-async def offer_detail(request: Request, offer_id: int):
+async def offer_detail(
+    request: Request,
+    offer_id: int,
+    session: AsyncSession = Depends(get_db_session)
+):
     """Детальная страница оффера со статистикой"""
     
-    offer = await db.fetch_one(
-        "SELECT id, name, url, created_at FROM offers WHERE id = $1",
-        offer_id
-    )
+    result = await session.execute(select(Offer).where(Offer.id == offer_id))
+    offer_obj = result.scalar_one_or_none()
     
-    if not offer:
+    if not offer_obj:
         raise HTTPException(status_code=404, detail="Offer not found")
     
+    offer = {
+        "id": offer_obj.id,
+        "name": offer_obj.name,
+        "url": offer_obj.url,
+        "created_at": offer_obj.created_at
+    }
+    
     # Общая статистика по офферу (через все кампании)
-    overall_stats = await db.fetch_one("""
-        SELECT 
-            COUNT(DISTINCT c.id) as campaigns_count,
-            COUNT(CASE WHEN e.event_type = 'email_click' THEN 1 END) as email_clicks,
-            COUNT(CASE WHEN e.event_type = 'landing_click' THEN 1 END) as landing_clicks,
-            COUNT(CASE WHEN e.event_type = 'conversion' THEN 1 END) as conversions,
-            COUNT(CASE WHEN e.event_type = 'unsubscribe' THEN 1 END) as unsubscribes
-        FROM offers o
-        LEFT JOIN campaigns c ON o.id = c.offer_id
-        LEFT JOIN events e ON c.id = e.campaign_id
-        WHERE o.id = $1
-    """, offer_id)
+    overall_stats_stmt = (
+        select(
+            func.count(distinct(Campaign.id)).label("campaigns_count"),
+            func.count(case((Event.event_type == "email_click", 1))).label("email_clicks"),
+            func.count(case((Event.event_type == "landing_click", 1))).label("landing_clicks"),
+            func.count(case((Event.event_type == "conversion", 1))).label("conversions"),
+            func.count(case((Event.event_type == "unsubscribe", 1))).label("unsubscribes")
+        )
+        .select_from(Offer)
+        .outerjoin(Campaign, Offer.id == Campaign.offer_id)
+        .outerjoin(Event, Campaign.id == Event.campaign_id)
+        .where(Offer.id == offer_id)
+    )
+    overall_stats_result = await session.execute(overall_stats_stmt)
+    overall_stats_row = overall_stats_result.first()
+    
+    overall_stats = {
+        "campaigns_count": overall_stats_row.campaigns_count or 0 if overall_stats_row else 0,
+        "email_clicks": overall_stats_row.email_clicks or 0 if overall_stats_row else 0,
+        "landing_clicks": overall_stats_row.landing_clicks or 0 if overall_stats_row else 0,
+        "conversions": overall_stats_row.conversions or 0 if overall_stats_row else 0,
+        "unsubscribes": overall_stats_row.unsubscribes or 0 if overall_stats_row else 0
+    }
     
     # Статистика по кампаниям этого оффера
-    campaigns_stats = await db.fetch_all("""
-        SELECT 
-            c.id,
-            c.name,
-            COUNT(CASE WHEN e.event_type = 'email_click' THEN 1 END) as email_clicks,
-            COUNT(CASE WHEN e.event_type = 'landing_click' THEN 1 END) as landing_clicks,
-            COUNT(CASE WHEN e.event_type = 'conversion' THEN 1 END) as conversions,
-            COUNT(CASE WHEN e.event_type = 'unsubscribe' THEN 1 END) as unsubscribes
-        FROM campaigns c
-        LEFT JOIN events e ON c.id = e.campaign_id
-        WHERE c.offer_id = $1
-        GROUP BY c.id, c.name
-        ORDER BY email_clicks DESC
-    """, offer_id)
+    campaigns_stats_stmt = (
+        select(
+            Campaign.id,
+            Campaign.name,
+            func.count(case((Event.event_type == "email_click", 1))).label("email_clicks"),
+            func.count(case((Event.event_type == "landing_click", 1))).label("landing_clicks"),
+            func.count(case((Event.event_type == "conversion", 1))).label("conversions"),
+            func.count(case((Event.event_type == "unsubscribe", 1))).label("unsubscribes")
+        )
+        .outerjoin(Event, Campaign.id == Event.campaign_id)
+        .where(Campaign.offer_id == offer_id)
+        .group_by(Campaign.id, Campaign.name)
+        .order_by(func.count(case((Event.event_type == "email_click", 1))).desc())
+    )
+    campaigns_stats_result = await session.execute(campaigns_stats_stmt)
+    campaigns_stats = [
+        {
+            "id": row.id,
+            "name": row.name,
+            "email_clicks": row.email_clicks or 0,
+            "landing_clicks": row.landing_clicks or 0,
+            "conversions": row.conversions or 0,
+            "unsubscribes": row.unsubscribes or 0
+        }
+        for row in campaigns_stats_result.all()
+    ]
     
     # Вычисляем conversion rate
-    email_clicks = overall_stats["email_clicks"] or 0
-    conversions = overall_stats["conversions"] or 0
+    email_clicks = overall_stats["email_clicks"]
+    conversions = overall_stats["conversions"]
     conversion_rate = (conversions / email_clicks * 100) if email_clicks > 0 else 0
     
     return templates.TemplateResponse(
@@ -582,11 +712,7 @@ async def offer_detail(request: Request, offer_id: int):
             "request": request,
             "offer": offer,
             "overall_stats": {
-                "campaigns_count": overall_stats["campaigns_count"] or 0,
-                "email_clicks": overall_stats["email_clicks"] or 0,
-                "landing_clicks": overall_stats["landing_clicks"] or 0,
-                "conversions": overall_stats["conversions"] or 0,
-                "unsubscribes": overall_stats["unsubscribes"] or 0,
+                **overall_stats,
                 "conversion_rate": conversion_rate
             },
             "campaigns_stats": campaigns_stats
@@ -595,15 +721,23 @@ async def offer_detail(request: Request, offer_id: int):
 
 
 @router.get("/offer/{offer_id}/edit", response_class=HTMLResponse)
-async def edit_offer_page(request: Request, offer_id: int):
+async def edit_offer_page(
+    request: Request,
+    offer_id: int,
+    session: AsyncSession = Depends(get_db_session)
+):
     """Страница редактирования оффера"""
-    offer = await db.fetch_one(
-        "SELECT id, name, url FROM offers WHERE id = $1",
-        offer_id
-    )
+    result = await session.execute(select(Offer).where(Offer.id == offer_id))
+    offer_obj = result.scalar_one_or_none()
     
-    if not offer:
+    if not offer_obj:
         raise HTTPException(status_code=404, detail="Offer not found")
+    
+    offer = {
+        "id": offer_obj.id,
+        "name": offer_obj.name,
+        "url": offer_obj.url
+    }
     
     return templates.TemplateResponse(
         "edit_offer.html",
@@ -616,7 +750,8 @@ async def update_offer(
     request: Request,
     offer_id: int,
     name: str = Form(...),
-    url: str = Form(...)
+    url: str = Form(...),
+    session: AsyncSession = Depends(get_db_session)
 ):
     """Обновление оффера"""
     
@@ -624,24 +759,26 @@ async def update_offer(
         raise HTTPException(status_code=400, detail="Name and URL are required")
     
     # Проверяем существование оффера
-    offer = await db.fetch_one("SELECT id FROM offers WHERE id = $1", offer_id)
+    result = await session.execute(select(Offer).where(Offer.id == offer_id))
+    offer = result.scalar_one_or_none()
     if not offer:
         raise HTTPException(status_code=404, detail="Offer not found")
     
     # Обновляем оффер
-    await db.execute(
-        "UPDATE offers SET name = $1, url = $2 WHERE id = $3",
-        name,
-        url,
-        offer_id
-    )
+    offer.name = name
+    offer.url = url
+    session.add(offer)
     
     # Обновляем offer_url во всех кампаниях с этим оффером
-    await db.execute(
-        "UPDATE campaigns SET offer_url = $1 WHERE offer_id = $2",
-        url,
-        offer_id
+    campaigns_result = await session.execute(
+        select(Campaign).where(Campaign.offer_id == offer_id)
     )
+    campaigns = campaigns_result.scalars().all()
+    for campaign in campaigns:
+        campaign.offer_url = url
+        session.add(campaign)
+    
+    await session.flush()
     
     if request.headers.get("hx-request"):
         return HTMLResponse(
@@ -656,27 +793,28 @@ async def update_offer(
 async def update_campaign_offer(
     request: Request,
     campaign_id: int,
-    offer_id: int = Form(...)
+    offer_id: int = Form(...),
+    session: AsyncSession = Depends(get_db_session)
 ):
     """Обновление оффера в кампании"""
     
     # Проверяем существование кампании
-    campaign = await db.fetch_one("SELECT id FROM campaigns WHERE id = $1", campaign_id)
+    campaign_result = await session.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = campaign_result.scalar_one_or_none()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
     
     # Проверяем существование оффера
-    offer = await db.fetch_one("SELECT id, url FROM offers WHERE id = $1", offer_id)
+    offer_result = await session.execute(select(Offer).where(Offer.id == offer_id))
+    offer = offer_result.scalar_one_or_none()
     if not offer:
         raise HTTPException(status_code=404, detail="Offer not found")
     
     # Обновляем оффер в кампании
-    await db.execute(
-        "UPDATE campaigns SET offer_id = $1, offer_url = $2 WHERE id = $3",
-        offer_id,
-        offer["url"],
-        campaign_id
-    )
+    campaign.offer_id = offer_id
+    campaign.offer_url = offer.url
+    session.add(campaign)
+    await session.flush()
     
     if request.headers.get("hx-request"):
         return HTMLResponse(
